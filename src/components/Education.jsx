@@ -5,9 +5,9 @@ export default function Education() {
     <section className="section" id="education">
       <div className="container">
         <div className="section-head reveal">
-          <span className="section-num">05 —</span>
+          <span className="eyebrow">Education</span>
           <h2 className="section-title">
-            Education &amp; <em>research</em>
+            Academic <em>foundation</em>
           </h2>
         </div>
 

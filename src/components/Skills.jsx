@@ -5,9 +5,9 @@ export default function Skills() {
     <section className="section" id="skills">
       <div className="container">
         <div className="section-head reveal">
-          <span className="section-num">04 —</span>
+          <span className="eyebrow">Toolkit</span>
           <h2 className="section-title">
-            Tools &amp; <em>craft</em>
+            Tools &amp; <em>technologies</em>
           </h2>
         </div>
 

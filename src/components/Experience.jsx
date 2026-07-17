@@ -5,9 +5,9 @@ export default function Experience() {
     <section className="section" id="experience">
       <div className="container">
         <div className="section-head reveal">
-          <span className="section-num">02 —</span>
+          <span className="eyebrow">Experience</span>
           <h2 className="section-title">
-            Selected <em>experience</em>
+            Where I&rsquo;ve <em>made an impact</em>
           </h2>
         </div>
 

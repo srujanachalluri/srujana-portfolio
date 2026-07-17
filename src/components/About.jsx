@@ -5,9 +5,9 @@ export default function About() {
     <section className="section" id="about">
       <div className="container">
         <div className="section-head reveal">
-          <span className="section-num">01 —</span>
+          <span className="eyebrow">About</span>
           <h2 className="section-title">
-            About <em>the work</em>
+            Building software that <em>actually ships</em>
           </h2>
         </div>
 
