@@ -233,6 +233,40 @@ export const skills = [
   },
 ];
 
+// The featured resource — your AI Interview Coach. Flip `live` to true and set
+// `href` to the deployed URL once it's shipped.
+export const featuredResource = {
+  emoji: "🎤",
+  title: "AI Interview Coach",
+  tagline: "Practice interviews with an AI that adapts to your resume.",
+  description:
+    "A mobile-first PWA that runs mock interviews with voice, generates resume-tailored questions, scores your answers, and gamifies your prep. Built with React, FastAPI, Groq, and Firebase.",
+  stack: ["React / Vite", "FastAPI", "Groq", "Firebase", "PWA"],
+  live: false, // set true when deployed
+  href: "https://github.com/srujanachalluri", // TODO: replace with live app URL
+  ctaLive: "Try it live",
+  ctaSoon: "Launching soon",
+};
+
+// Curated links you'd hand a job-seeker or fellow ML engineer — taste, not self-promo.
+export const resourceLinks = [
+  {
+    title: "My GitHub",
+    note: "Source for the projects on this site — QSAR pipeline, LLM probes, and more.",
+    href: "https://github.com/srujanachalluri",
+  },
+  {
+    title: "LLM Fidelity Benchmarks",
+    note: "The evaluation suites I map my reasoning probes to: TruthfulQA, StrategyQA, ROSCOE, ProcessBench.",
+    href: "https://github.com/sylinrl/TruthfulQA",
+  },
+  {
+    title: "RDKit",
+    note: "The cheminformatics toolkit behind the Delta-Opioid feature engineering.",
+    href: "https://www.rdkit.org/",
+  },
+];
+
 export const education = [
   {
     school: "Concordia University Wisconsin",

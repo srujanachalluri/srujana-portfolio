@@ -1,27 +1,14 @@
-import { useReveal } from './useReveal.js'
-import Nav from './components/Nav.jsx'
-import Hero from './components/Hero.jsx'
-import About from './components/About.jsx'
-import Experience from './components/Experience.jsx'
-import Projects from './components/Projects.jsx'
-import Skills from './components/Skills.jsx'
-import Education from './components/Education.jsx'
-import Contact from './components/Contact.jsx'
+import { Routes, Route } from 'react-router-dom'
+import Home from './pages/Home.jsx'
+import Blog from './pages/Blog.jsx'
+import BlogPost from './pages/BlogPost.jsx'
 
 export default function App() {
-  useReveal()
   return (
-    <>
-      <Nav />
-      <main>
-        <Hero />
-        <About />
-        <Experience />
-        <Projects />
-        <Skills />
-        <Education />
-        <Contact />
-      </main>
-    </>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/blog" element={<Blog />} />
+      <Route path="/blog/:slug" element={<BlogPost />} />
+    </Routes>
   )
 }
