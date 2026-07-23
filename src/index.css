@@ -529,15 +529,6 @@ em { font-style: normal; color: var(--accent-2); }
 /* Section head animation */
 .section-head { animation: slideUp 0.7s var(--ease) backwards; }
 
-/* Skills animation */
-#skills .tool-pill {
-  animation: fadeInScale 0.5s var(--ease) backwards;
-}
-.marquee-left .tool-pill:nth-child(1) { animation-delay: 0.05s; }
-.marquee-left .tool-pill:nth-child(2) { animation-delay: 0.1s; }
-.marquee-left .tool-pill:nth-child(3) { animation-delay: 0.15s; }
-.marquee-left .tool-pill:nth-child(4) { animation-delay: 0.2s; }
-.marquee-left .tool-pill:nth-child(5) { animation-delay: 0.25s; }
 
 /* Education animation */
 .edu-list .edu-item { opacity: 0; transform: translateY(30px); transition: opacity 0.8s var(--ease), transform 0.8s var(--ease); }
