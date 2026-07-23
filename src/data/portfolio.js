@@ -171,26 +171,49 @@ export const projects = [
   },
 ];
 
+export const tools = {
+  row1: [
+    "IBM App Connect Enterprise (ACE v11/v12)",
+    "IBM MQ",
+    "ESQL",
+    "DFDL",
+    "Message Flows & Sub-flows",
+    "SOAP Web Services",
+    "REST APIs",
+    "Service Orchestration",
+    "Kafka",
+    "Event-Driven Messaging",
+  ],
+  row2: [
+    "Pub/Sub Messaging",
+    "JDBC",
+    "HTTP(S)",
+    "File-Based Flows",
+    "XML/JSON Transformation",
+    "Python",
+    "Java",
+    "TypeScript",
+    "Next.js",
+    "AWS & Vercel",
+  ],
+};
+
 export const skills = [
   {
-    group: "AI / Machine Learning",
-    items: ["LLMs & Agentic AI", "PyTorch / Scikit-learn", "XGBoost · LightGBM", "RDKit · Mordred", "Optuna", "OpenCV · CNNs", "LLM Evaluation"],
+    group: "Integration & Middleware",
+    items: ["IBM App Connect Enterprise (ACE)", "IBM MQ", "ESQL", "Message Flows", "SOAP/REST APIs", "Kafka", "Event-Driven Messaging", "XML/JSON Transformation"],
   },
   {
-    group: "Languages",
-    items: ["Python", "Java", "TypeScript", "JavaScript", ".NET / C#", "ESQL", "SQL"],
+    group: "Languages & Runtime",
+    items: ["Java", "Python", "TypeScript", "JavaScript", ".NET / C#", "SQL"],
   },
   {
-    group: "Web & Full-Stack",
-    items: ["Next.js", "React", "Supabase", "REST APIs", "Responsive Design", "Node.js"],
+    group: "Full-Stack & Web",
+    items: ["Next.js", "React", "Node.js", "Supabase", "Responsive Design"],
   },
   {
-    group: "Cloud & Platforms",
-    items: ["AWS (S3, CodePipeline)", "IBM App Connect (ACE)", "WebSphere", "MDMCE", "GitHub Actions", "Vercel"],
-  },
-  {
-    group: "Practice",
-    items: ["CI/CD & DevOps", "System Integration", "Database Design", "Git & Code Review", "Agile"],
+    group: "Cloud & DevOps",
+    items: ["AWS (S3, CodePipeline)", "GitHub Actions", "Vercel", "CI/CD", "Docker"],
   },
 ];
 
