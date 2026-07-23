@@ -171,30 +171,46 @@ export const projects = [
   },
 ];
 
+// Three marquee rows. Each row scrolls in the opposite direction to its
+// neighbour, so keep the rows roughly the same length for a balanced look.
 export const tools = {
-  row1: [
-    "IBM App Connect Enterprise (ACE v11/v12)",
-    "IBM MQ",
-    "ESQL",
-    "DFDL",
-    "Message Flows & Sub-flows",
-    "SOAP Web Services",
-    "REST APIs",
-    "Service Orchestration",
-    "Kafka",
-    "Event-Driven Messaging",
-  ],
-  row2: [
-    "Pub/Sub Messaging",
-    "JDBC",
-    "HTTP(S)",
-    "File-Based Flows",
-    "XML/JSON Transformation",
-    "Python",
-    "Java",
-    "TypeScript",
-    "Next.js",
-    "AWS & Vercel",
+  rows: [
+    [
+      "Python",
+      "Java",
+      "TypeScript",
+      "JavaScript",
+      ".NET / C#",
+      "SQL",
+      "ESQL",
+      "Next.js",
+      "React",
+      "Node.js",
+    ],
+    [
+      "IBM App Connect Enterprise",
+      "IBM MQ",
+      "Kafka",
+      "REST APIs",
+      "SOAP Web Services",
+      "Message Flows",
+      "Event-Driven Messaging",
+      "XML/JSON Transformation",
+      "Service Orchestration",
+      "DFDL",
+    ],
+    [
+      "AWS",
+      "Vercel",
+      "Supabase",
+      "Docker",
+      "GitHub Actions",
+      "CI/CD",
+      "PyTorch",
+      "RDKit",
+      "XGBoost",
+      "OpenAI API",
+    ],
   ],
 };
 

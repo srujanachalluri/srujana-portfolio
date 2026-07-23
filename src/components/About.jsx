@@ -1,9 +1,17 @@
-import { about } from '../data/portfolio.js'
+import { about, stats } from '../data/portfolio.js'
 
 export default function About() {
   return (
-    <section className="section" id="about">
-      <div className="container">
+    <section className="section about" id="about">
+      {/* Decorative: drifting aurora glows + faint grid, behind all content. */}
+      <div className="about-bg" aria-hidden="true">
+        <span className="orb orb-1" />
+        <span className="orb orb-2" />
+        <span className="orb orb-3" />
+        <span className="about-grid-lines" />
+      </div>
+
+      <div className="container about-content">
         <div className="section-head reveal">
           <span className="eyebrow">About</span>
           <h2 className="section-title">
@@ -15,8 +23,14 @@ export default function About() {
           <aside className="about-aside reveal">
             <span className="eyebrow">Focus areas</span>
             <ul className="about-focus">
-              {about.focus.map((f) => (
-                <li key={f}>{f}</li>
+              {about.focus.map((f, i) => (
+                <li key={f} style={{ '--d': `${i * 90}ms` }}>
+                  <span className="about-focus-num">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="about-focus-label">{f}</span>
+                  <span className="about-focus-arrow">→</span>
+                </li>
               ))}
             </ul>
           </aside>
@@ -29,6 +43,15 @@ export default function About() {
               </p>
             ))}
           </div>
+        </div>
+
+        <div className="about-stats reveal">
+          {stats.map((s, i) => (
+            <div className="about-stat" key={s.label} style={{ '--d': `${i * 110}ms` }}>
+              <div className="about-stat-value">{s.value}</div>
+              <div className="about-stat-label">{s.label}</div>
+            </div>
+          ))}
         </div>
       </div>
     </section>
