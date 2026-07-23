@@ -1,4 +1,4 @@
-import { about, stats } from '../data/portfolio.js'
+import { about } from '../data/portfolio.js'
 
 export default function About() {
   return (
@@ -43,15 +43,6 @@ export default function About() {
               </p>
             ))}
           </div>
-        </div>
-
-        <div className="about-stats reveal">
-          {stats.map((s, i) => (
-            <div className="about-stat" key={s.label} style={{ '--d': `${i * 110}ms` }}>
-              <div className="about-stat-value">{s.value}</div>
-              <div className="about-stat-label">{s.label}</div>
-            </div>
-          ))}
         </div>
       </div>
     </section>

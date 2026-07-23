@@ -40,6 +40,8 @@ export default function Experience() {
                   </div>
                 </div>
 
+                {job.summary && <p className="exp-summary">{job.summary}</p>}
+
                 <ul className="exp-points">
                   {job.points.map((pt, j) => (
                     <li key={j}>{pt}</li>

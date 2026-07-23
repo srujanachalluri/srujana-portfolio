@@ -35,7 +35,26 @@ export const about = {
   focus: ["LLMs & Agentic AI", "Full-Stack Web", "Enterprise Integration", "ML for Science"],
 };
 
+// Accenture is pinned first (not strictly reverse-chronological) — it's the
+// headline experience for interviews. `summary` is optional on any entry.
 export const experience = [
+  {
+    role: "Software Engineer",
+    org: "Accenture",
+    period: "May 2021 — Jul 2024",
+    location: "India · On-site",
+    summary:
+      "3+ years as a Backend Developer on large-scale enterprise integration for the Sony LIV platform — independently designing and migrating 50+ interfaces to production and leading enterprise upgrades across IBM App Connect Enterprise, Java, WebSphere, and MDMCE.",
+    tags: ["Java", "IBM ACE", "AWS", "REST APIs", "CI/CD"],
+    points: [
+      "Engineered and automated 50+ integration flows and APIs using Java, IBM ACE, ESQL, and Python — achieving 99.9% data synchronization and saving $900K/year in operational labor.",
+      "Built RESTful APIs processing JSON, XML, and CSV, reducing backend processing time by 40%.",
+      "Led IBM ACE v11 → v12 migration with 100% deployment success, eliminating downtime and saving $1.2M annually.",
+      "Implemented CI/CD pipelines with GitHub Actions and AWS CodePipeline, accelerating release cycles by 35%.",
+      "Independently managed Go-Live operations, migrating 25+ critical interfaces to production with zero critical defects.",
+      "Built data pipelines transferring logs and transaction metrics to AWS S3, enabling Tableau dashboards and improving monitoring accuracy by 30%; mentored junior developers, lifting team code quality by 20%.",
+    ],
+  },
   {
     role: "Graduate Research Assistant — LLM Evaluation (Medical AI)",
     org: "Concordia University Wisconsin",
@@ -90,21 +109,6 @@ export const experience = [
       "Designed and integrated REST APIs and a Supabase database for dynamic event content.",
       "Engineered core logic: 3-tier event sorting, recurring events, and fuzzy duplicate detection with admin override.",
       "Built an admin dashboard for content management (featured events, archiving, media uploads); handled DevOps — DNS/email setup, deployment, and agile ticket tracking.",
-    ],
-  },
-  {
-    role: "Software Engineer",
-    org: "Accenture",
-    period: "May 2021 — Jul 2024",
-    location: "India · On-site",
-    tags: ["Java", "IBM ACE", "AWS", "REST APIs", "CI/CD"],
-    points: [
-      "Engineered and automated 50+ integration flows and APIs using Java, IBM ACE, ESQL, and Python — achieving 99.9% data synchronization and saving $900K/year in operational labor.",
-      "Built RESTful APIs processing JSON, XML, and CSV, reducing backend processing time by 40%.",
-      "Led IBM ACE v11 → v12 migration with 100% deployment success, eliminating downtime and saving $1.2M annually.",
-      "Implemented CI/CD pipelines with GitHub Actions and AWS CodePipeline, accelerating release cycles by 35%.",
-      "Independently managed Go-Live operations, migrating 25+ critical interfaces to production with zero critical defects.",
-      "Built data pipelines transferring logs and transaction metrics to AWS S3, enabling Tableau dashboards and improving monitoring accuracy by 30%; mentored junior developers, lifting team code quality by 20%.",
     ],
   },
   {
