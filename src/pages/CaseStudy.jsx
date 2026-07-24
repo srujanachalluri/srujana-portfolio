@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -20,14 +20,46 @@ const components = {
   },
 }
 
+function chapterFromHash(chapters) {
+  const id = window.location.hash.replace(/^#/, '')
+  const i = chapters.findIndex((c) => c.id === id)
+  return i === -1 ? 0 : i
+}
+
 export default function CaseStudy() {
   const { slug } = useParams()
   const study = getCaseStudy(slug)
+  const chapters = study?.chapters || []
+  const [active, setActive] = useState(() => (chapters.length ? chapterFromHash(chapters) : 0))
+  const bodyTop = useRef(null)
+  const firstRender = useRef(true)
 
   useEffect(() => {
-    window.scrollTo(0, 0)
-    document.title = study ? `${study.title} — Srujana Challuri` : 'Not found'
+    document.title = study ? `${study.title} · Srujana Challuri` : 'Not found'
   }, [study])
+
+  // Deep links and the browser back button both drive the active chapter.
+  useEffect(() => {
+    if (!chapters.length) return
+    const onHash = () => setActive(chapterFromHash(chapters))
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [chapters])
+
+  // On a chapter switch, put the reader at the top of the new chapter rather
+  // than leaving them mid-page. The first render is left alone so a deep link
+  // does not fight the browser's own scroll restoration.
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false
+      window.scrollTo(0, 0)
+      return
+    }
+    const el = bodyTop.current
+    if (!el) return
+    const y = el.getBoundingClientRect().top + window.scrollY - 90
+    window.scrollTo({ top: y, behavior: 'smooth' })
+  }, [active])
 
   if (!study) {
     return (
@@ -42,6 +74,15 @@ export default function CaseStudy() {
       </>
     )
   }
+
+  const go = (i) => {
+    setActive(i)
+    if (chapters[i]) window.history.replaceState(null, '', `#${chapters[i].id}`)
+  }
+
+  const chapter = chapters[active] || { body: study.body }
+  const prev = chapters[active - 1]
+  const next = chapters[active + 1]
 
   return (
     <>
@@ -67,11 +108,47 @@ export default function CaseStudy() {
               </div>
             </div>
 
-            <div className="post-body">
+            {chapters.length > 1 && (
+              <nav className="cs-tabs" aria-label="Case study sections">
+                <div className="cs-tabs-track">
+                  {chapters.map((c, i) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={`cs-tab${i === active ? ' is-active' : ''}`}
+                      aria-current={i === active ? 'page' : undefined}
+                      onClick={() => go(i)}
+                    >
+                      <span className="cs-tab-num">{String(i + 1).padStart(2, '0')}</span>
+                      {c.title}
+                    </button>
+                  ))}
+                </div>
+              </nav>
+            )}
+
+            <div className="post-body" ref={bodyTop}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                {study.body}
+                {chapter.body}
               </ReactMarkdown>
             </div>
+
+            {chapters.length > 1 && (
+              <div className="cs-pager">
+                {prev ? (
+                  <button type="button" className="cs-pager-btn" onClick={() => go(active - 1)}>
+                    <span className="cs-pager-dir">← Previous</span>
+                    <span className="cs-pager-title">{prev.title}</span>
+                  </button>
+                ) : <span />}
+                {next ? (
+                  <button type="button" className="cs-pager-btn is-next" onClick={() => go(active + 1)}>
+                    <span className="cs-pager-dir">Next →</span>
+                    <span className="cs-pager-title">{next.title}</span>
+                  </button>
+                ) : <span />}
+              </div>
+            )}
 
             <div className="post-foot">
               <Link to="/case-studies" className="btn btn-ghost">← All case studies</Link>

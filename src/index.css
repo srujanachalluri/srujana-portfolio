@@ -674,13 +674,110 @@ em { font-style: normal; color: var(--accent-2); }
 .post-body th { background: var(--bg-alt); color: var(--ink); font-weight: 600; }
 .post-body tbody tr:nth-child(even) { background: #fbfdfe; }
 
-/* Mermaid diagrams */
+/* ---------- Diagrams ---------- */
+.diagram { margin: 2rem 0; padding: 0; }
+.diagram-surface {
+  display: block; width: 100%; padding: 0; margin: 0;
+  background: none; border: 0; font: inherit; color: inherit;
+  cursor: zoom-in; position: relative; text-align: left;
+  border-radius: var(--radius);
+}
+.diagram-surface:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 3px; }
+
 .mermaid-diagram {
-  margin: 1.8rem 0; padding: clamp(1rem, 3vw, 1.8rem);
-  background: var(--bg-alt); border: 1px solid var(--line);
-  border-radius: var(--radius); overflow-x: auto; text-align: center;
+  padding: clamp(1rem, 3vw, 1.9rem);
+  background:
+    radial-gradient(circle at 1px 1px, rgba(15, 23, 32, 0.07) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--bg-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto; text-align: center;
+  transition: border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
+.diagram-surface:hover .mermaid-diagram {
+  border-color: rgba(51, 217, 228, 0.7);
+  box-shadow: 0 10px 26px rgba(15, 23, 32, 0.09);
+}
+
+.diagram-hint {
+  position: absolute; right: 0.85rem; bottom: 0.85rem;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.32rem 0.7rem; border-radius: 100px;
+  font-size: 0.76rem; font-weight: 600; letter-spacing: 0.01em;
+  color: var(--accent-ink); background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(51, 217, 228, 0.55);
+  box-shadow: var(--shadow-sm);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 0.25s var(--ease), transform 0.25s var(--ease);
+  pointer-events: none;
+}
+.diagram-surface:hover .diagram-hint,
+.diagram-surface:focus-visible .diagram-hint { opacity: 1; transform: none; }
+@media (hover: none) {
+  .diagram-hint { opacity: 1; transform: none; }
+}
+
+/* Full-screen diagram viewer: drag to pan, scroll or pinch to zoom. */
+.dv {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  background: rgba(8, 12, 16, 0.86);
+  backdrop-filter: blur(6px);
+  animation: dvIn 0.2s var(--ease);
+}
+@keyframes dvIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dv-bar {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 0.7rem clamp(0.8rem, 3vw, 1.6rem);
+  background: rgba(8, 12, 16, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cfd8e0;
+}
+.dv-tip { font-size: 0.8rem; color: #8e9aa7; }
+.dv-actions { display: flex; align-items: center; gap: 0.4rem; }
+.dv-actions button {
+  min-width: 34px; height: 34px; padding: 0 0.7rem;
+  border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06); color: #e6ebef;
+  font: inherit; font-size: 0.9rem; font-weight: 600; line-height: 1;
+  cursor: pointer; transition: background 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.dv-actions button:hover { background: rgba(114, 242, 249, 0.18); border-color: var(--accent); }
+.dv-level {
+  min-width: 52px; text-align: center;
+  font-size: 0.8rem; font-variant-numeric: tabular-nums; color: #8e9aa7;
+}
+.dv-reset { font-size: 0.82rem !important; }
+.dv-close { color: #fff !important; }
+
+.dv-stage {
+  flex: 1 1 auto; position: relative; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; touch-action: none;
+}
+.dv-stage:active { cursor: grabbing; }
+/* Mermaid stamps an inline max-width on the svg, so it has to be overridden
+   here or the diagram opens small inside a large viewer. */
+.dv-canvas {
+  will-change: transform;
+  width: min(88vw, 1400px);
+  padding: 1.5rem 2rem;
+  background: #fff; border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.dv-canvas svg {
+  display: block; width: 100% !important; max-width: none !important; height: auto;
+}
+.dv-loading { color: #8e9aa7; font-size: 0.9rem; }
+
+@media (max-width: 640px) {
+  .dv-tip { display: none; }
+  .dv-bar { justify-content: flex-end; }
+}
+
 .mermaid-fallback {
   background: var(--dark); color: #e6ebef; border: 1px solid var(--dark-line);
   border-radius: var(--radius); padding: 1.2rem 1.4rem; overflow-x: auto;
@@ -689,6 +786,68 @@ em { font-style: normal; color: var(--accent-2); }
 
 /* Case studies carry diagrams, tables and code — give them more width. */
 .cs-container { max-width: 880px; }
+
+/* Case-study chapter tabs. Sticky so the reader can jump between sections
+   without scrolling back up. */
+.cs-tabs {
+  position: sticky; top: 56px; z-index: 20;
+  margin: -0.4rem 0 2.2rem;
+  padding: 0.55rem 0;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.cs-tabs-track {
+  display: flex; gap: 0.4rem;
+  overflow-x: auto; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.cs-tabs-track::-webkit-scrollbar { display: none; }
+
+.cs-tab {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.55rem 1rem; border-radius: 100px;
+  border: 1px solid var(--line);
+  background: #fff; color: var(--muted);
+  font: inherit; font-size: 0.9rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease),
+              border-color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.cs-tab:hover { color: var(--ink); border-color: var(--accent-2); transform: translateY(-1px); }
+.cs-tab-num {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--faint); font-variant-numeric: tabular-nums;
+}
+.cs-tab.is-active {
+  background: var(--accent-tint); color: var(--accent-ink);
+  border-color: rgba(51, 217, 228, 0.7);
+}
+.cs-tab.is-active .cs-tab-num { color: var(--accent-2); }
+
+/* Previous / next chapter */
+.cs-pager {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--line);
+}
+.cs-pager-btn {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  padding: 1rem 1.2rem; border-radius: var(--radius);
+  border: 1px solid var(--line); background: #fff;
+  font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.25s var(--ease), transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.cs-pager-btn.is-next { text-align: right; align-items: flex-end; }
+.cs-pager-btn:hover {
+  border-color: var(--accent-2); transform: translateY(-2px); box-shadow: var(--shadow-md);
+}
+.cs-pager-dir { font-size: 0.78rem; font-weight: 600; color: var(--faint); }
+.cs-pager-title { font-size: 1rem; font-weight: 600; color: var(--ink); }
+@media (max-width: 560px) {
+  .cs-pager { grid-template-columns: 1fr; }
+  .cs-pager-btn.is-next { text-align: left; align-items: flex-start; }
+}
 
 /* Case-study subtitle under the title */
 .cs-subtitle {

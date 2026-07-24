@@ -6,7 +6,7 @@ import { caseStudies } from '../data/caseStudies.js'
 export default function CaseStudies() {
   useEffect(() => {
     window.scrollTo(0, 0)
-    document.title = 'Case studies — Srujana Challuri'
+    document.title = 'Case studies · Srujana Challuri'
   }, [])
 
   return (
@@ -20,8 +20,8 @@ export default function CaseStudies() {
               How I <em>actually built it</em>
             </h1>
             <p className="blog-hero-lede">
-              Engineering deep-dives on the systems I&rsquo;ve delivered — architecture,
-              flow design, code, commands, and the trade-offs behind them.
+              Engineering deep dives on the systems I&rsquo;ve delivered. Architecture,
+              flow design, code, commands, and the trade-offs behind each decision.
             </p>
           </div>
         </header>

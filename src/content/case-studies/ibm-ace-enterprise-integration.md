@@ -1,230 +1,239 @@
 ---
 title: "Enterprise Integration on IBM App Connect Enterprise"
-subtitle: "How I designed, secured, deployed, and migrated ACE message flows connecting a master-data hub to portals, ERP, and analytics systems."
-role: "Application Developer Analyst → Senior Application Developer"
-period: "May 2021 — Jul 2024"
-readingTime: "12 min read"
-stack: ["IBM ACE v11/v12", "ESQL", "Java", "IBM MQ", "DFDL", "REST / SOAP", "TLS", "Jenkins"]
-excerpt: "A walk through one inbound and one outbound integration end to end — flow anatomy, ESQL, TLS keystores, runtime commands, monitoring, and the v11 → v12 platform migration I led."
+subtitle: "Two real integrations, start to finish. One REST API that brings customer records into the master data hub, and one flow that pushes them back out to SAP."
+role: "Application Developer Analyst, then Senior Application Developer"
+period: "May 2021 to Jul 2024"
+readingTime: "8 min read"
+stack: ["IBM ACE v11/v12", "IBM MQ", "ESQL", "REST / JSON", "OAuth + Basic Auth", "TLS", "AWS"]
+excerpt: "How an inbound REST API and an outbound SAP sync were designed, secured and run on IBM App Connect Enterprise. Built as diagrams first."
 cover: "⚙️"
 ---
 
-> **A note on detail.** This describes patterns and my own working practice from an
-> enterprise engagement. System names, queue names, hostnames, endpoints, and
-> credentials are generalised or replaced with placeholders, and all code below is
-> representative of the patterns I used rather than client source. Nothing
-> proprietary appears here.
+<!--chapter:Overview-->
 
-## The context
+> System names, hostnames, URLs, ports and credentials on this page are placeholders. The flow design, the code patterns and the commands are my own work from a real enterprise engagement.
 
-I worked on the integration layer of a large enterprise platform. At the centre
-sat a **Master Data Management (MDM) hub** — the golden copy of customer and
-vendor records. Around it sat everything that needed to read or write that data:
-a customer-facing portal, an upstream provisioning system, an ERP, a CRM, and a
-data lake feeding analytics.
+## What I built
 
-None of those systems talked to each other directly. **IBM App Connect
-Enterprise (ACE)** sat in the middle as the integration bus: receiving messages,
-validating and transforming them, routing them to the right target, and handing
-back a response. Over three years I built and ran roughly fifty of these
-integrations.
+I was an integration developer on a large customer data platform.
 
-This page walks through **one inbound flow and one outbound flow** end to end,
-then the platform work around them — security, deployment, monitoring, and the
-v11 → v12 migration I led.
+At the centre of the platform sits a **Master Data Management (MDM) hub**. It holds the one true copy of every customer record. Around it sit the systems that create, read or need a copy of that data: a sales portal, an ERP (SAP S/4HANA), a billing system and a reporting stack.
 
----
+None of these systems talk to each other directly. **IBM App Connect Enterprise (ACE)** sits in the middle. It receives the message, checks it, changes its shape, sends it to the right place and sends an answer back.
 
-## First: what a message flow actually is
-
-If you haven't worked with ACE, the vocabulary is the main barrier. It's simpler
-than it sounds.
-
-An **integration node** (historically "broker") is the runtime process. Inside
-it are **integration servers** (historically "execution groups") — isolated
-containers for your applications. You deploy **applications** into an
-integration server, and an application contains one or more **message flows**.
-
-A message flow is a directed graph of **nodes**. Each node does one job, and a
-message travels along the wires between them:
-
-- **Input nodes** start the flow — `MQ Input`, `HTTP Input`, `File Input`, `Timer`
-- **Compute nodes** transform the message, written in **ESQL** or Java
-- **Filter / Route nodes** make branching decisions
-- **Request nodes** call something external — `HTTP Request`, `SOAP Request`
-- **Output nodes** end the flow — `MQ Output`, `File Output`, `HTTP Reply`
-
-A **sub-flow** is a reusable fragment you drop into many flows — error handling,
-audit logging, header manipulation. Building those once mattered: it's the
-difference between fifty flows that each handle failures slightly differently
-and fifty flows that behave identically when something breaks.
+I built and ran around 50 of these integrations over three years.
 
 ```mermaid
 flowchart LR
-  A[MQ Input] --> B[Compute<br/>validate + log]
-  B --> C{Filter}
-  C -->|valid| D[Compute<br/>transform]
-  C -->|invalid| E[Error sub-flow]
-  D --> F[MQ Output]
-  E --> G[(Failure queue)]
+  subgraph SRC ["Systems that send data in"]
+    P["Sales portal"]
+    B["Billing system"]
+  end
+
+  ACE{{"IBM ACE<br/>integration layer"}}
+  MDM[("MDM hub<br/>golden record")]
+
+  subgraph TGT ["Systems that receive data out"]
+    S4["SAP S/4HANA"]
+    RPT["Reporting / data lake"]
+  end
+
+  P -->|"REST + JSON"| ACE
+  B -->|"REST + JSON"| ACE
+  ACE <-->|"IBM MQ"| MDM
+  ACE -->|"REST + JSON"| S4
+  ACE -->|"files over SFTP"| RPT
+
+  style ACE fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style MDM fill:#fff4e6,stroke:#f0a500,stroke-width:2px
 ```
 
-The **message tree** is the other core idea. When a message arrives, ACE parses
-it into a tree with distinct branches: `Root` for the message body,
-`Properties`, `LocalEnvironment` for flow-scoped scratch data, and
-`ExceptionList` for errors. ESQL is the language for walking and rewriting that
-tree.
+## This page shows two of them
 
----
+| | Flow | What it does |
+| --- | --- | --- |
+| 1 | **Inbound** | The sales portal calls my REST API with a customer in JSON. ACE checks it and hands it to the MDM hub. |
+| 2 | **Outbound** | MDM has a new or updated record. ACE picks it up, logs in to SAP, and posts it there. |
 
-## Where it ran
+Use the tabs above to move between them. Every diagram on this page opens full screen when you click it.
 
-The platform ran on Linux VMs inside a cloud VPC, split across public and
-private subnets. Nothing in the private subnet was reachable from the internet —
-all access went through a bastion host.
+## The vocabulary, in one minute
+
+If you have not used ACE before, this is the whole model.
+
+An **integration node** is the running process. Inside it are **integration servers**, which are isolated containers for your work. You deploy an **application** into a server, and an application holds one or more **message flows**.
+
+A message flow is a chain of small boxes called **nodes**. A message enters at one end and travels along the wires.
+
+```mermaid
+flowchart LR
+  IN["Input node<br/>HTTP, MQ, File, Timer"] --> C["Compute node<br/>checks and reshapes<br/>the message (ESQL)"]
+  C --> R{"Route node<br/>which way?"}
+  R -->|"good"| OUT["Output node<br/>MQ, HTTP reply, File"]
+  R -->|"bad"| SUB[["Error sub-flow<br/>shared by every flow"]]
+
+  style IN fill:#e6fcfd,stroke:#33d9e4
+  style OUT fill:#e6fcfd,stroke:#33d9e4
+  style SUB fill:#ffe9e9,stroke:#e06c6c
+```
+
+A **sub-flow** is a small piece you build once and drop into many flows. I built the error handling as a sub-flow. That is why 50 flows fail in exactly the same way instead of 50 different ways.
+
+<!--chapter:Inbound flow-->
+
+## Inbound: portal calls my REST API
+
+**The job.** A user creates or updates a customer in the sales portal. MDM needs its own copy so it stays the golden record.
+
+The portal does not talk to MDM. It calls a REST API that I built and hosted on ACE. ACE checks the JSON, stamps a transaction ID on it, drops it on a queue for MDM, and answers the portal straight away.
 
 ```mermaid
 flowchart TB
-  NET[Internet] --> IGW[Internet gateway]
-  IGW --> JH["Linux jump host<br/>(bastion)"]
-  subgraph private ["Private subnet"]
-    ACE["Product VM<br/>IBM ACE + IBM MQ"]
-    TOOLS["Tooling VM<br/>Jenkins · Git · Nexus · SonarQube"]
+  U(["Portal user creates<br/>or updates a customer"])
+  U --> P["Sales portal"]
+
+  subgraph ACEBOX ["IBM ACE"]
+    API["REST API<br/>POST /v1/customer"]
+    VAL["Validate JSON"]
+    TXN["Add unique<br/>transaction ID"]
+    ACK["Build<br/>acknowledgement"]
   end
-  JH -->|SSH| ACE
-  JH -->|SSH| TOOLS
-  TOOLS -->|"deploy BAR"| ACE
-  ACE --> LB[Load balancer]
+
+  Q1[("MQ queue<br/>PORTAL.MDM.CUST.REQ")]
+  MDM["MDM hub"]
+  DB[("MDM database")]
+  S4["SAP S/4HANA"]
+
+  P -->|"1. POST JSON<br/>basic auth over HTTPS"| API
+  API --> VAL
+  VAL --> TXN
+  TXN -->|"2. put message"| Q1
+  TXN --> ACK
+  ACK -->|"3. 200 OK with txn ID"| P
+  Q1 -->|"4. read message"| MDM
+  MDM -->|"5. create or update"| DB
+  MDM -->|"6. onward sync"| S4
+
+  style API fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style ACEBOX fill:#f5fdfe,stroke:#c9e7ea
+  style Q1 fill:#fff4e6,stroke:#f0a500
 ```
 
-The same topology was replicated across **DEV, UAT, and Production**. Integration
-servers were split by transport so that a misbehaving HTTP flow couldn't starve
-queue-driven work:
+The portal gets its answer in step 3. It does not wait for MDM or SAP. That keeps the portal fast and means a slow database never blocks a user.
 
-| Integration server | Purpose |
-| --- | --- |
-| `MQ_EG` | Queue-driven flows — inbound and outbound messaging |
-| `HTTP_EG` | REST and SOAP services exposed over HTTPS |
-| `PROD_EG` | Scheduled and batch-style flows |
+### Inside the message flow
 
----
-
-## Inbound: portal → ACE → master data hub
-
-**The scenario.** When a customer is created or updated in the customer-facing
-portal, the master data hub needs its own copy so it stays the golden record.
-
-The portal doesn't call MDM directly. It drops a caret-delimited record onto a
-queue, and ACE takes it from there.
+This is what the flow looks like in the ACE toolkit, box by box.
 
 ```mermaid
 flowchart LR
-  SRC[Customer portal] -->|delimited record| Q1[("SOURCE.REQ.IN")]
-  Q1 --> IN[MQ Input]
-  IN --> LOG[Compute<br/>audit inbound]
-  LOG --> PARSE[Compute<br/>parse + map]
-  PARSE --> Q2[("TARGET.REQ.IN")]
-  Q2 --> MDM[Master data hub]
-  MDM --> Q3[("TARGET.RES.OUT")]
-  Q3 --> RES[Compute<br/>audit response]
-  RES --> Q4[("SOURCE.RES.OUT")]
-  Q4 --> SRC
+  HI["HTTP Input<br/>/v1/customer"] --> LOG["Compute<br/>log request"]
+  LOG --> VAL{"Validate<br/>JSON"}
+  VAL -->|"valid"| MAP["Compute<br/>add txn ID<br/>map to MDM shape"]
+  VAL -->|"invalid"| ERR[["Error sub-flow"]]
+  MAP --> MQO["MQ Output<br/>PORTAL.MDM.CUST.REQ"]
+  MQO --> ACK["Compute<br/>build ACK JSON"]
+  ACK --> HR["HTTP Reply"]
+  ERR --> HR
+
+  style HI fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style HR fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style ERR fill:#ffe9e9,stroke:#e06c6c
 ```
 
-**The main flow, step by step:**
-
-| # | Event |
+| Step | What happens |
 | --- | --- |
-| 1 | Portal places the customer record on the inbound queue |
-| 2 | ACE reads the message and writes an audit log entry |
-| 3 | ACE parses the delimited record and maps it to the hub's request format |
-| 4 | ACE puts the transformed request on the hub's input queue |
-| 5 | The hub processes it and replies on its output queue |
-| 6 | ACE reads the response, logs it, and relays it to the portal's queue |
-| 7 | On a failure response, the same path is used — the portal always gets an answer |
+| 1 | Portal posts JSON to the ACE URL over HTTPS with basic auth |
+| 2 | ACE logs the raw request |
+| 3 | ACE checks the JSON is well formed and the required fields are present |
+| 4 | ACE adds a unique transaction ID, used as the MQ correlation ID |
+| 5 | ACE puts the message on the MDM input queue |
+| 6 | ACE builds an acknowledgement and replies to the portal |
+| 7 | If anything fails, the error sub-flow builds an error response and the portal still gets a reply |
 
-That last row matters more than it looks. **Every flow answers.** A silent
-failure in an integration layer is the worst possible outcome, because the
-source system sits waiting on a response that will never arrive.
+Step 7 is the one that matters most. **Every call gets an answer.** A silent failure is the worst outcome, because the portal sits waiting for a response that never arrives.
 
-### Modelling the message
+### What the portal sends
 
-The portal's format was positional and caret-delimited — not self-describing,
-so ACE has no way to know what field seven means:
-
-```text
-^C^21^^8786^^^^ACME Trading^^Jane Cardoza^Company^Resident^Unit 4, Harbour Road
-^Northside^Metro City^400001^13^IN^^9999999999^^orders@example.com^N^N^X^3^YES
+```json
+{
+  "customer": {
+    "transactionId": "",
+    "hubCustomerId": "",
+    "customerName": "Northline Traders Pvt Ltd",
+    "customerType": "Company",
+    "taxId": "TIN-4471829",
+    "email": "accounts@northline.example",
+    "mobile": "9000000000",
+    "address": {
+      "line1": "Unit 4, Ring Road",
+      "city": "Bengaluru",
+      "postCode": "560001",
+      "countryCode": "IN"
+    },
+    "taxRegistrations": [
+      {
+        "hubCustomerId": "",
+        "taxNumber": "TR-KA-4471829",
+        "state": "Karnataka",
+        "billingCodes": [
+          { "hubCustomerId": "", "billCode": "BC-1001", "isActive": "Y" }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-**DFDL (Data Format Description Language)** is how you give that structure. A
-DFDL schema describes the separator, the field order, the types, and the
-optionality, and ACE then parses the flat record into a proper message tree you
-can address by name:
+`hubCustomerId` is the field that decides everything. Empty means create a new record. Filled in means update the one that already exists. The same three levels repeat down the structure, so one API handles create, update and extend.
 
-```xml
-<xs:element name="CustomerRecord" dfdl:lengthKind="delimited"
-            dfdl:separator="^" dfdl:separatorPosition="infix">
-  <xs:complexType>
-    <xs:sequence>
-      <xs:element name="RecordType"   type="xs:string"/>
-      <xs:element name="SourceCode"   type="xs:int"/>
-      <xs:element name="CustomerId"   type="xs:string"/>
-      <xs:element name="LegalName"    type="xs:string"/>
-      <xs:element name="ContactName"  type="xs:string" minOccurs="0"/>
-      <xs:element name="AddressLine1" type="xs:string"/>
-      <xs:element name="PostCode"     type="xs:string"/>
-      <xs:element name="CountryCode"  type="xs:string"/>
-      <xs:element name="Email"        type="xs:string" minOccurs="0"/>
-    </xs:sequence>
-  </xs:complexType>
-</xs:element>
+### What ACE sends back
+
+```json
+{
+  "status": "SUCCESS",
+  "httpCode": 200,
+  "transactionId": "PRT-20240118-000451",
+  "message": "Customer request accepted and queued for MDM",
+  "receivedAt": "2024-01-18T09:14:22.481Z"
+}
 ```
 
-Once that exists, the same record is addressable as
-`InputRoot.DFDL.CustomerRecord.LegalName` instead of counting carets — and a
-malformed record fails at the parser with a clear error rather than silently
-mapping the wrong field.
+### The mapping code
 
-### The ESQL
-
-A Compute node's ESQL, showing the patterns I used constantly — reference
-variables to avoid repeating long paths, `CARDINALITY` to walk repeating
-elements, `LocalEnvironment` to carry context, and explicit error handling:
+This is the Compute node in the middle. The patterns here are the ones I used in every flow: a reference variable so long paths are not repeated, `LocalEnvironment` to carry the transaction ID, and an explicit check before anything else runs.
 
 ```sql
-CREATE COMPUTE MODULE MapPortalCustomerToHub
+CREATE COMPUTE MODULE MapInboundCustomerToHub
   CREATE FUNCTION Main() RETURNS BOOLEAN
   BEGIN
-    -- Copy headers so MQMD/correlation survives the transformation
     CALL CopyMessageHeaders();
 
-    DECLARE inRec  REFERENCE TO InputRoot.DFDL.CustomerRecord;
-    DECLARE outMsg REFERENCE TO OutputRoot.XMLNSC.CustomerRequest;
+    DECLARE inCust REFERENCE TO InputRoot.JSON.Data.customer;
 
-    CREATE LASTCHILD OF OutputRoot DOMAIN('XMLNSC');
-    CREATE FIELD OutputRoot.XMLNSC.CustomerRequest;
-    MOVE outMsg TO OutputRoot.XMLNSC.CustomerRequest;
+    -- One ID follows this record everywhere: MQ correlation, logs, error records
+    DECLARE txnId CHARACTER
+      'PRT-' || CAST(CURRENT_DATE AS CHARACTER FORMAT 'yyyyMMdd')
+             || '-' || SUBSTRING(CAST(UUIDASCHAR AS CHARACTER) FROM 1 FOR 6);
 
-    -- Stamp correlation data for downstream audit
-    SET OutputLocalEnvironment.Variables.CorrelationId =
-        COALESCE(InputRoot.MQMD.CorrelId, CAST(UUIDASCHAR AS CHARACTER));
-    SET OutputLocalEnvironment.Variables.SourceSystem = 'PORTAL';
+    SET OutputLocalEnvironment.Variables.TxnId  = txnId;
+    SET OutputLocalEnvironment.Variables.Source = 'PORTAL';
 
-    IF inRec.CustomerId IS NULL OR TRIM(inRec.CustomerId) = '' THEN
-      THROW USER EXCEPTION
-        MESSAGE 2951
-        VALUES ('Mandatory field CustomerId missing on inbound record');
+    IF inCust.customerName IS NULL OR TRIM(inCust.customerName) = '' THEN
+      THROW USER EXCEPTION MESSAGE 2951
+        VALUES ('customerName is mandatory and was not supplied');
     END IF;
 
-    SET outMsg.Header.SourceSystem = 'PORTAL';
-    SET outMsg.Header.Timestamp    = CURRENT_TIMESTAMP;
-    SET outMsg.Header.Correlation  = OutputLocalEnvironment.Variables.CorrelationId;
+    CREATE LASTCHILD OF OutputRoot DOMAIN('JSON');
 
-    SET outMsg.Customer.Id      = TRIM(inRec.CustomerId);
-    SET outMsg.Customer.Name    = TRIM(inRec.LegalName);
-    SET outMsg.Customer.Country = UPPER(TRIM(inRec.CountryCode));
-    SET outMsg.Customer.Email   = TRIM(COALESCE(inRec.Email, ''));
+    SET OutputRoot.JSON.Data.transactionId = txnId;
+    SET OutputRoot.JSON.Data.sourceSystem  = 'PORTAL';
+    SET OutputRoot.JSON.Data.customer      = inCust;
+    SET OutputRoot.JSON.Data.customer.hubCustomerId =
+        COALESCE(inCust.hubCustomerId, '');
+
+    -- Correlation ID so MDM and ACE can be matched in the logs later
+    SET OutputRoot.MQMD.CorrelId = CAST(txnId AS BLOB CCSID 1208);
 
     RETURN TRUE;
   END;
@@ -240,17 +249,26 @@ CREATE COMPUTE MODULE MapPortalCustomerToHub
 END MODULE;
 ```
 
-The `CopyMessageHeaders` procedure is boilerplate every ACE developer writes on
-day one, and forgetting it is the classic beginner bug: the transformation works
-but the MQMD headers vanish, so correlation and reply-to routing break in ways
-that only show up under load.
+`CopyMessageHeaders` is the first thing every ACE developer learns and the first thing they forget. Leave it out and the transformation still works, but the headers disappear and reply routing breaks under load.
 
-### Handling failure
+### Error handling sub-flow
 
-Exceptions route to a shared error sub-flow rather than being handled per flow.
-It reads `ExceptionList`, extracts the deepest error — which is the useful one,
-since ACE nests exceptions from outermost to root cause — and writes a
-structured record to a failure queue:
+Errors do not get handled inside the main flow. They are thrown, caught by the failure terminal, and passed to one shared sub-flow.
+
+```mermaid
+flowchart LR
+  MAIN["Main flow<br/>failure terminal"] --> EX["Compute<br/>read ExceptionList"]
+  EX --> BUILD["Compute<br/>build error record<br/>txn ID, code, reason, payload"]
+  BUILD --> FQ[("Failure queue")]
+  BUILD --> LOGF["File Output<br/>error log"]
+  BUILD --> RESP["Compute<br/>build error JSON"]
+  RESP --> REPLY["HTTP Reply<br/>back to portal"]
+
+  style MAIN fill:#ffe9e9,stroke:#e06c6c,stroke-width:2px
+  style REPLY fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+```
+
+ACE nests exceptions from the outside in, so the useful message is the deepest one. This walks down to it.
 
 ```sql
 CREATE COMPUTE MODULE ErrorHandler_Extract
@@ -260,7 +278,7 @@ CREATE COMPUTE MODULE ErrorHandler_Extract
     DECLARE errNum INTEGER;
     DECLARE errTxt CHARACTER;
 
-    -- Walk to the innermost exception: that is the actual cause
+    -- Walk to the innermost exception, which is the real cause
     WHILE ex.*[>] IS NOT NULL DO
       IF ex.Number IS NOT NULL THEN
         SET errNum = ex.Number;
@@ -269,264 +287,443 @@ CREATE COMPUTE MODULE ErrorHandler_Extract
       MOVE ex LASTCHILD;
     END WHILE;
 
-    SET OutputRoot.XMLNSC.Failure.Flow        = 'PortalToHub';
-    SET OutputRoot.XMLNSC.Failure.Correlation =
-        InputLocalEnvironment.Variables.CorrelationId;
-    SET OutputRoot.XMLNSC.Failure.Code        = errNum;
-    SET OutputRoot.XMLNSC.Failure.Reason      = errTxt;
-    SET OutputRoot.XMLNSC.Failure.Timestamp   = CURRENT_TIMESTAMP;
+    SET OutputRoot.JSON.Data.status      = 'FAILURE';
+    SET OutputRoot.JSON.Data.flow        = 'CustomerInbound';
+    SET OutputRoot.JSON.Data.transactionId =
+        InputLocalEnvironment.Variables.TxnId;
+    SET OutputRoot.JSON.Data.errorCode   = errNum;
+    SET OutputRoot.JSON.Data.errorReason = errTxt;
+    SET OutputRoot.JSON.Data.retryNeeded = 'Y';
+    SET OutputRoot.JSON.Data.timestamp   = CURRENT_TIMESTAMP;
 
     RETURN TRUE;
   END;
 END MODULE;
 ```
 
----
+Codes the portal team can rely on:
 
-## Outbound: master data hub → ACE → ERP
+| Code | Meaning | Who retries |
+| --- | --- | --- |
+| `400` | Bad request. JSON is malformed or a mandatory field is missing | Portal, after fixing the data |
+| `401` | Basic auth failed or the credential expired | Portal, with new credentials |
+| `408` | Timeout while putting the message on the queue | Portal |
+| `500` | Technical exception inside ACE | Support team, then the portal resends |
 
-The reverse direction is a different shape. Here the hub is the source of truth
-and the target is an external **REST API over TLS** that needs an access token —
-so authentication, retries, and response handling all become the flow's problem.
+### The API details I shared with the inbound team
+
+This is the page I gave the portal developers. Nothing else was needed to start integrating.
+
+| Item | Value |
+| --- | --- |
+| ACE application | `Customer_Inbound_app` |
+| Message flow | `Customer_Inbound.msgflow` |
+| Integration server | `EG_HTTP` |
+| Base URL (DEV) | `https://ace-dev-lb.int.example.com:8443` |
+| Base URL (PROD) | `https://ace-prod-lb.int.example.com:8443` |
+| Resource | `POST /v1/customer` |
+| Content type | `application/json` |
+| Authentication | HTTP basic auth over TLS 1.2 |
+| Username | `portal_svc` |
+| Password | issued per environment, never shared over email |
+| MDM input queue | `PORTAL.MDM.CUST.REQ` |
+| MDM output queue | `PORTAL.MDM.CUST.RES` |
+
+```bash
+curl -X POST \
+  'https://ace-dev-lb.int.example.com:8443/v1/customer' \
+  -u 'portal_svc:<password>' \
+  -H 'Content-Type: application/json' \
+  --data @customer-create.json
+```
+
+The password never lives in the flow or the deployed BAR file. The HTTP Input node points at a **security profile**, which points at a credential alias, which is resolved at runtime from the ACE vault. That is also why the exact same BAR file can be promoted from DEV to PROD without a rebuild.
+
+```bash
+# Create the credential the security profile resolves at runtime
+mqsisetdbparms ACENODE -n portal_basicauth -u portal_svc -p '<password>'
+mqsireportproperties ACENODE -o BrokerRegistry -r
+```
+
+<!--chapter:Outbound flow-->
+
+## Outbound: MDM pushes the record to SAP
+
+**The job.** The record is now in MDM. SAP S/4HANA needs its own copy.
+
+This direction is harder than inbound. The target is an external REST API over TLS that will not accept anything until you have logged in. So ACE has to fetch a token first, then make the real call, then deal with whatever comes back.
+
+```mermaid
+flowchart TB
+  MDM["MDM hub<br/>record created or updated"]
+  Q1[("MQ queue<br/>MDM.SAP.CUST.REQ")]
+
+  subgraph ACEBOX ["IBM ACE"]
+    RD["Read message<br/>and log it"]
+    TOK["Get token from<br/>SAP auth API"]
+    HDR["Set token<br/>in the header"]
+    CALL["Post customer<br/>to SAP API"]
+    CHK{"HTTP<br/>status"}
+    LOGR["Log the<br/>response"]
+  end
+
+  SAP["SAP S/4HANA<br/>REST API"]
+  Q2[("MQ queue<br/>MDM.SAP.CUST.RES")]
+  RETRY[("Retry / failure<br/>queue")]
+
+  MDM -->|"1. put message"| Q1
+  Q1 -->|"2. read"| RD
+  RD --> TOK
+  TOK -->|"3. token back"| HDR
+  HDR --> CALL
+  CALL -->|"4. POST JSON + bearer token"| SAP
+  SAP -->|"5. SAP customer ID"| CHK
+  CHK -->|"2xx"| LOGR
+  CHK -->|"4xx / 5xx"| RETRY
+  LOGR -->|"6. response for MDM"| Q2
+  Q2 --> MDM
+
+  style ACEBOX fill:#f5fdfe,stroke:#c9e7ea
+  style Q1 fill:#fff4e6,stroke:#f0a500
+  style Q2 fill:#fff4e6,stroke:#f0a500
+  style RETRY fill:#ffe9e9,stroke:#e06c6c
+```
+
+### The login step, in order
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as MDM hub
+  participant Q as IBM MQ
+  participant A as IBM ACE
+  participant S as SAP S/4HANA
+
+  M->>Q: Put customer record on MDM.SAP.CUST.REQ
+  Q->>A: MQ Input reads the message
+  A->>A: Log request, keep transaction ID
+  A->>S: GET /oauth/token (client credentials)
+  S-->>A: access_token, expires_in 3600
+  A->>A: Set Authorization header on the request
+  A->>S: POST /v1/business-partners with the customer JSON
+  S-->>A: 201 Created, SAP customer ID
+  A->>A: Log the response
+  A->>Q: Put the response on MDM.SAP.CUST.RES
+  Q->>M: MDM reads the SAP ID and stores it
+```
+
+### Inside the message flow
 
 ```mermaid
 flowchart LR
-  MDM[Master data hub] --> Q[("HUB.EVENT.OUT")]
-  Q --> IN[MQ Input]
-  IN --> MAP[Compute<br/>build JSON payload]
-  MAP --> POL["Security profile<br/>OAuth / Basic auth"]
-  POL --> REQ[HTTP Request<br/>TLS 1.2]
-  REQ --> CHK{HTTP status}
-  CHK -->|2xx| OK[Compute<br/>log success]
-  CHK -->|4xx / 5xx| ERR[Error sub-flow]
-  REQ --> ERP[Downstream ERP]
-  ERR --> RETRY[(Retry / failure queue)]
+  MQI["MQ Input<br/>MDM.SAP.CUST.REQ"] --> LOG["Compute<br/>log request"]
+  LOG --> AUTH["HTTP Request<br/>token endpoint"]
+  AUTH --> SET["Compute<br/>set bearer token<br/>build SAP payload"]
+  SET --> REQ["HTTP Request<br/>SAP customer API<br/>TLS 1.2"]
+  REQ --> CHK{"status<br/>code"}
+  CHK -->|"2xx"| OK["Compute<br/>map SAP ID"]
+  CHK -->|"4xx / 5xx"| ERR[["Error sub-flow"]]
+  OK --> MQO["MQ Output<br/>MDM.SAP.CUST.RES"]
+  ERR --> RQ[("Retry queue")]
+
+  style MQI fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style MQO fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style ERR fill:#ffe9e9,stroke:#e06c6c
 ```
 
-Three things made this harder than the inbound direction:
+| Step | What happens |
+| --- | --- |
+| 1 | MDM puts the new or changed customer on the queue |
+| 2 | ACE reads it and logs it with the transaction ID |
+| 3 | ACE calls the SAP authentication API and gets a token |
+| 4 | ACE sets that token in the request header |
+| 5 | ACE posts the customer JSON to the SAP customer API |
+| 6 | ACE reads the response and logs it |
+| 7 | ACE puts the response, including the SAP customer ID, back on the queue for MDM |
 
-**Credentials never live in the flow.** The HTTP Request node points at a
-**policy**, and the policy references a credential alias resolved at runtime
-from the ACE vault. The BAR file that ships to production contains no secrets —
-which is also what makes the same BAR promotable across environments unchanged.
-
-**Non-2xx is not an exception.** By default the HTTP Request node throws on an
-error status, which loses the response body — usually the only place the target
-system explains what was wrong. I set the node to keep the response, then
-branched on the status code myself so the failure record captured the actual
-error payload.
-
-**Idempotency.** Queue-driven delivery is at-least-once, so a redelivered
-message must not create a duplicate downstream record. Outbound requests carried
-the correlation ID from the hub event so the target could de-duplicate.
+### Building the request
 
 ```sql
-CREATE COMPUTE MODULE BuildErpRequest
+CREATE COMPUTE MODULE BuildSapCustomerRequest
   CREATE FUNCTION Main() RETURNS BOOLEAN
   BEGIN
     CREATE LASTCHILD OF OutputRoot DOMAIN('JSON');
 
-    DECLARE src REFERENCE TO InputRoot.XMLNSC.CustomerEvent;
+    DECLARE src   REFERENCE TO InputRoot.JSON.Data.customer;
+    DECLARE token CHARACTER InputLocalEnvironment.Variables.AccessToken;
+    DECLARE txnId CHARACTER InputLocalEnvironment.Variables.TxnId;
 
-    SET OutputRoot.JSON.Data.correlationId =
-        InputLocalEnvironment.Variables.CorrelationId;
-    SET OutputRoot.JSON.Data.customer.id      = src.Id;
-    SET OutputRoot.JSON.Data.customer.name    = src.Name;
-    SET OutputRoot.JSON.Data.customer.country = src.Country;
+    SET OutputRoot.JSON.Data.transactionId          = txnId;
+    SET OutputRoot.JSON.Data.customer.hubCustomerId = src.hubCustomerId;
+    SET OutputRoot.JSON.Data.customer.name          = src.customerName;
+    SET OutputRoot.JSON.Data.customer.country       = UPPER(src.address.countryCode);
+    SET OutputRoot.JSON.Data.customer.taxId         = src.taxId;
 
-    -- Repeating group → JSON array
+    -- Repeating tax registration block becomes a JSON array
     DECLARE i INTEGER 1;
-    DECLARE n INTEGER CARDINALITY(src.Address[]);
+    DECLARE n INTEGER CARDINALITY(src.taxRegistrations[]);
     WHILE i <= n DO
-      SET OutputRoot.JSON.Data.customer.addresses.Item[i].line =
-          src.Address[i].Line1;
-      SET OutputRoot.JSON.Data.customer.addresses.Item[i].postCode =
-          src.Address[i].PostCode;
+      SET OutputRoot.JSON.Data.customer.taxRegistrations.Item[i].taxNumber =
+          src.taxRegistrations[i].taxNumber;
+      SET OutputRoot.JSON.Data.customer.taxRegistrations.Item[i].state =
+          src.taxRegistrations[i].state;
       SET i = i + 1;
     END WHILE;
 
-    -- Request headers for the HTTP Request node
-    SET OutputRoot.HTTPRequestHeader."Content-Type"    = 'application/json';
-    SET OutputRoot.HTTPRequestHeader."X-Correlation-Id" =
-        InputLocalEnvironment.Variables.CorrelationId;
+    -- Headers the HTTP Request node will send
+    SET OutputRoot.HTTPRequestHeader."Content-Type"     = 'application/json';
+    SET OutputRoot.HTTPRequestHeader."Authorization"    = 'Bearer ' || token;
+    SET OutputRoot.HTTPRequestHeader."X-Correlation-Id" = txnId;
 
     RETURN TRUE;
   END;
 END MODULE;
 ```
 
----
+### Three things that made this harder than inbound
 
-## Securing the flows
+**Credentials never sit in the flow.** The HTTP Request node points at a **policy**. The policy names a credential alias. The alias is resolved from the encrypted ACE vault when the flow runs. The BAR file that ships to production holds no secrets at all.
 
-Every external hop ran over TLS, which in ACE means configuring a **keystore**
-(the identity you present) and a **truststore** (the CAs and certificates you
-accept). I created and managed both, and imported external systems' certificates
-whenever a new partner endpoint was onboarded.
+**A 4xx is not an exception.** By default the HTTP Request node throws on an error status and the response body is lost. That body is usually the only place SAP explains what was wrong. I turned that off, kept the response, and branched on the status code myself. Now the failure record carries SAP's actual complaint.
 
-Generating the identity and importing a partner certificate:
+**Messages can arrive twice.** MQ delivery is at least once, so a redelivered message must not create a second customer in SAP. Every outbound call carries the transaction ID from the MDM event so SAP can spot the duplicate and ignore it.
+
+### Error handling sub-flow
+
+```mermaid
+flowchart LR
+  F["Failure terminal<br/>or non 2xx branch"] --> EX["Compute<br/>read ExceptionList<br/>and SAP response body"]
+  EX --> REC["Compute<br/>build error record<br/>txn ID, app ID, code,<br/>reason, original payload"]
+  REC --> FILE["File Output<br/>error log on disk"]
+  REC --> Q[("Retry queue")]
+  REC --> BACK["MQ Output<br/>error response to MDM"]
+
+  style F fill:#ffe9e9,stroke:#e06c6c,stroke-width:2px
+```
+
+MDM owns the retry. It reads the error message, the support team or the data steward corrects the record, and MDM pushes it again through the same queue. ACE does not silently retry bad data, because a record SAP rejected once will be rejected the same way a hundred times.
+
+| Code | Meaning |
+| --- | --- |
+| `400` | SAP rejected the payload. Validation or data error, body says which field |
+| `401` | Token expired or was refused. ACE fetches a new one and the message is retried |
+| `404` | Endpoint wrong for that environment. Almost always a policy override problem |
+| `500` | Technical exception inside ACE or inside SAP |
+
+### The API and authentication details
+
+| Item | Value |
+| --- | --- |
+| ACE application | `MDM_To_SAP_Customer_app` |
+| Message flow | `MDM_To_SAP_CustomerFlow.msgflow` |
+| Integration server | `EG_MQ` |
+| Input queue | `MDM.SAP.CUST.REQ` |
+| Output queue | `MDM.SAP.CUST.RES` |
+| Token URL | `https://auth.sap-int.example.com/oauth/token?grant_type=client_credentials` |
+| Token method | `GET` |
+| Token lifetime | 3600 seconds, cached in the flow until it expires |
+| Target URL | `https://sap-int.example.com/v1/business-partners` |
+| Target method | `POST` |
+| Transport | HTTPS, TLS 1.2, SAP certificate imported into the ACE truststore |
+
+Fetching the token:
 
 ```bash
-# Key pair for the integration node's own identity
+curl -X GET \
+  'https://auth.sap-int.example.com/oauth/token?grant_type=client_credentials' \
+  -H 'Content-Type: application/json' \
+  -H 'x-csrf-token: fetch' \
+  -u 'sap_int_client:<client_secret>'
+```
+
+```json
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlZmF1bHQt...",
+  "token_type": "bearer",
+  "expires_in": 3600
+}
+```
+
+Calling SAP with it:
+
+```bash
+curl -X POST \
+  'https://sap-int.example.com/v1/business-partners' \
+  -H 'Authorization: Bearer eyJhbGciOiJSUzI1NiIs...' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Correlation-Id: MDM-20240118-000451' \
+  --data @sap-customer-create.json
+```
+
+What SAP sends back:
+
+```json
+{
+  "transactionId": "MDM-20240118-000451",
+  "status": "SUCCESS",
+  "sapCustomerId": "0001004712",
+  "message": "Business partner created",
+  "processedAt": "2024-01-18T09:14:29.117Z"
+}
+```
+
+### The commands I ran around this flow
+
+```bash
+# Package the application and deploy it to the queue-driven server
+mqsicreatebar -data /workspace -b MDM_To_SAP_Customer_app.bar \
+              -a MDM_To_SAP_Customer_app -cleanBuild
+mqsideploy ACENODE -e EG_MQ -a MDM_To_SAP_Customer_app.bar
+
+# Store the SAP client credential in the vault, not in the BAR
+mqsivault ACENODE --create --vault-key <vault-key>
+mqsicredentials ACENODE --all-integration-servers --create \
+  --vault-key <vault-key> \
+  --credential-type local \
+  --credential-name S4_CLIENT_ALIAS \
+  --username sap_int_client --password '<client_secret>'
+mqsistart ACENODE --vault-key <vault-key>
+
+# Trust the SAP certificate so the TLS handshake succeeds
+keytool -importcert -alias sap_s4 -file sap_s4.cer \
+        -keystore /var/mqsi/ssl/truststore.jks
+keytool -list -v -keystore /var/mqsi/ssl/truststore.jks
+
+# Check what is deployed and running
+mqsilist ACENODE -e EG_MQ
+mqsireportproperties ACENODE -e EG_MQ -o ComIbmJVMManager -a
+
+# When something is wrong, turn on user trace and read it back
+mqsichangetrace ACENODE -u -e EG_MQ -l debug -r
+mqsireadlog  ACENODE -u -e EG_MQ -f -o trace.xml
+mqsiformatlog -i trace.xml -o trace.txt
+mqsichangetrace ACENODE -u -e EG_MQ -l none
+```
+
+<!--chapter:Platform & migration-->
+
+## Where all of this ran
+
+Linux VMs inside an AWS VPC, split into a public and a private subnet. Nothing in the private subnet was reachable from the internet. All access went through a jump host.
+
+```mermaid
+flowchart TB
+  NET(["Internet"]) --> IGW["Internet gateway"]
+
+  subgraph PUB ["Public subnet"]
+    JH["Linux jump host"]
+    LB["Classic load balancer"]
+  end
+
+  subgraph PRIV ["Private subnet"]
+    ACE["Product VM<br/>IBM ACE + IBM MQ"]
+    TOOLS["Tooling VM<br/>Jenkins · GitLab · Nexus · Sonar"]
+  end
+
+  IGW --> JH
+  IGW --> LB
+  JH -->|"SSH 22"| ACE
+  JH -->|"SSH 22"| TOOLS
+  TOOLS -->|"deploy BAR"| ACE
+  LB -->|"HTTPS 8443"| ACE
+
+  style ACE fill:#e6fcfd,stroke:#33d9e4,stroke-width:2px
+  style PRIV fill:#f5fdfe,stroke:#c9e7ea
+```
+
+The same shape was repeated in DEV, UAT and Production. Integration servers were split by transport so a busy HTTP flow could never starve the queue-driven ones.
+
+| Integration server | What runs there |
+| --- | --- |
+| `EG_HTTP` | REST and SOAP services exposed over HTTPS |
+| `EG_MQ` | Queue-driven flows, inbound and outbound |
+| `EG_BATCH` | Scheduled and batch style flows |
+
+## Security
+
+Every external hop ran over TLS. In ACE that means two files: a **keystore**, which is the identity you present, and a **truststore**, which holds the certificates you are willing to accept. I created and managed both, and imported a partner certificate every time a new system was onboarded.
+
+```bash
+# Our own identity
 keytool -genkeypair -alias ace_identity -keyalg RSA -keysize 2048 \
         -keystore /var/mqsi/ssl/keystore.jks -storetype JKS \
         -dname "CN=integration.internal, OU=Integration, O=Example, C=IN"
 
-# CSR out to the CA, signed certificate back in
-keytool -certreq -alias ace_identity -file ace.csr \
+keytool -certreq   -alias ace_identity -file ace.csr \
         -keystore /var/mqsi/ssl/keystore.jks
 keytool -importcert -alias ace_identity -file ace_signed.cer \
         -keystore /var/mqsi/ssl/keystore.jks
 
-# Trust a downstream system's certificate
-keytool -importcert -alias partner_erp -file partner_erp.cer \
-        -keystore /var/mqsi/ssl/truststore.jks
-
-keytool -list -v -keystore /var/mqsi/ssl/truststore.jks
-```
-
-Registering those stores with the integration node:
-
-```bash
+# Register both stores with the node
 mqsichangeproperties ACENODE -o BrokerRegistry \
   -n brokerKeystoreFile   -v /var/mqsi/ssl/keystore.jks
-mqsichangeproperties ACENODE -o BrokerRegistry -n brokerKeystoreType   -v JKS
 mqsichangeproperties ACENODE -o BrokerRegistry \
   -n brokerTruststoreFile -v /var/mqsi/ssl/truststore.jks
-mqsichangeproperties ACENODE -o BrokerRegistry -n brokerTruststoreType -v JKS
 
-# Store passwords — never inline in a flow or a BAR file
+# Passwords go in, never inline in a flow
 mqsistop  ACENODE
 mqsisetdbparms ACENODE -n brokerKeystore::password   -u <user> -p <password>
 mqsisetdbparms ACENODE -n brokerTruststore::password -u <user> -p <password>
 mqsistart ACENODE
 
-mqsireportproperties ACENODE -o BrokerRegistry -r
+# HTTPS listener for the inbound REST flows
+mqsichangeproperties ACENODE -e EG_HTTP -o HTTPSConnector \
+  -n explicitlySetPortNumber -v 8443
 ```
 
-And for flows exposed over HTTPS, the listener needs its own configuration:
+## Monitoring
+
+Monitoring profiles gave the platform visibility into message traffic without touching a single flow. A profile is an XML file that says which events a flow should emit. You attach it in the BAR file and then activate it with a command.
 
 ```bash
-mqsichangeproperties ACENODE -b httplistener -o HTTPSConnector \
-  -n keystoreFile   -v /var/mqsi/ssl/keystore.jks
-mqsichangeproperties ACENODE -b httplistener -o HTTPSConnector \
-  -n truststoreFile -v /var/mqsi/ssl/truststore.jks
-mqsichangeproperties ACENODE -e HTTP_EG -o HTTPSConnector \
-  -n explicitlySetPortNumber -v <https-port>
+# Pull the current profile out of a deployed flow to use as a template
+mqsireportflowmonitoring ACENODE -e EG_MQ \
+  --application MDM_To_SAP_Customer_app \
+  --flow MDM_To_SAP_CustomerFlow \
+  --extract-profile /opt/monitoring/S4Cust.monprofile.xml
 
-mqsireportproperties ACENODE -b httplistener -o HTTPSConnector -a
+# Activate it
+mqsichangeflowmonitoring ACENODE -e EG_MQ --all-application --all-flows -c active
+
+# Confirm it took
+mqsireportflowmonitoring ACENODE -e EG_MQ --all-application --all-flows
 ```
 
-### The credentials vault
-
-ACE v12 replaced scattered credential storage with an encrypted vault, and
-moving to it was one of the clearer wins of the upgrade — secrets stop living in
-configurable services and start living somewhere auditable:
-
-```bash
-mqsivault ACENODE --create --vault-key <vault-key>
-
-mqsicredentials ACENODE --all-integration-servers --create \
-  --vault-key <vault-key> \
-  --credential-type local \
-  --credential-name LocalCredentialsAlias \
-  --username <user> --password <password>
-
-mqsistart ACENODE --vault-key <vault-key>
-```
-
----
-
-## Runtime, deployment, and monitoring
-
-Day-to-day runtime work came down to a small set of commands:
-
-```bash
-# Node and server lifecycle
-mqsicreatebroker ACENODE -q QM.ACE
-mqsicreateexecutiongroup ACENODE -e MQ_EG
-mqsistart ACENODE
-mqsilist ACENODE
-
-# Package and deploy
-mqsicreatebar -data /workspace -b CustomerIntegration.bar \
-              -a CustomerIntegration -cleanBuild
-mqsideploy ACENODE -e MQ_EG -a CustomerIntegration.bar
-
-# Inspect and troubleshoot
-mqsireportproperties ACENODE -e MQ_EG -o ComIbmJVMManager -a
-mqsireadlog ACENODE -u -e MQ_EG -f -o trace.xml
-mqsiformatlog -i trace.xml -o trace.txt
-```
-
-**Monitoring profiles** were how the platform got visibility into message
-traffic without changing a single flow. A profile is an XML document declaring
-which events a flow should emit; you apply it to a deployed flow and activate
-it. I rolled these out across DEV, QA, and Production for every integration:
-
-```bash
-# Extract the current profile for a deployed flow
-mqsireportflowmonitoring ACENODE -e MQ_EG \
-  --application CustomerIntegration \
-  --flow PortalToHub \
-  --extract-profile /opt/monitoring/PortalToHub.monprofile.xml
-
-# Apply and activate
-mqsichangeflowmonitoring ACENODE -e MQ_EG \
-  -k CustomerIntegration -f PortalToHub -c active
-
-# Verify
-mqsireportflowmonitoring ACENODE -e MQ_EG \
-  -k CustomerIntegration -f PortalToHub
-```
-
-Emitted events were published over the built-in MQTT pub/sub broker. When events
-weren't arriving, the first checks were always whether the publication mechanism
-was enabled at all:
+Deploying the BAR does not switch monitoring on. That caught me out once and cost half a day. The events publish over the built in MQTT broker, so when nothing arrives the first check is always whether publication is enabled at all:
 
 ```bash
 mqsireportproperties ACENODE -b pubsub -o MQTTServer -r
 mqsireportproperties ACENODE -b pubsub -o BusinessEvents/MQTT -n enabled
 ```
 
-Flow logs and transaction counts were shipped out to object storage on a
-schedule, which fed a dashboard the support team used to see throughput and
-failure rates per interface.
+Flow logs and transaction counts were shipped to an S3 bucket on a schedule. That fed a Tableau dashboard the support team used to watch throughput and failure rates per interface.
 
----
+## The v11 to v12 migration
 
-## The v11 → v12 migration
+This is the piece I owned from start to finish. Upgrading the platform from **ACE 11.0.0.11 to 12.0.11.3** across DEV, UAT and Production.
 
-This is the piece of work I owned end to end: upgrading the platform from
-**ACE 11.0.0.11 to 12.0.11.3** across DEV, UAT, and Production.
+```mermaid
+flowchart LR
+  P1["1. Pre migration<br/>backups, prerequisites,<br/>inventory<br/><b>1 day</b>"]
+  P2["2. Installation<br/>v12 runtime alongside v11<br/><b>2 days</b>"]
+  P3["3. Migration<br/>in-place, same node name<br/><b>2 days</b>"]
+  P4["4. Deployment<br/>BAR files, policies,<br/>security profiles<br/><b>2 days</b>"]
+  P5["5. Post migration<br/>connectivity testing<br/>and hypercare<br/><b>5 days</b>"]
 
-I planned it in five phases:
+  P1 --> P2 --> P3 --> P4 --> P5
 
-| Phase | Work | Duration |
-| --- | --- | --- |
-| 1 | Pre-migration — backups, prerequisite checks, inventory | 1 day |
-| 2 | Installation of the v12 runtime alongside v11 | 2 days |
-| 3 | Migration of integration projects and node definitions | 2 days |
-| 4 | BAR deployment and policy/security-profile verification | 2 days |
-| 5 | Post-migration validation and hypercare | 5 days |
-
-**Backups first, always.** v11 and v12 can coexist on the same machine, which is
-what makes rollback realistic — but only if the component directories and BAR
-files are captured before anything changes:
-
-```bash
-tar -zcvf ace11_backup_$(date +%Y%m%d).tar.gz /opt/IBM/ace11/
-tar -zcvf mqsi_backup_$(date +%Y%m%d).tar.gz  /var/mqsi
-tar -zcvf mqm_backup_$(date +%Y%m%d).tar.gz   /opt/mqm
-tar -ztvf ace11_backup_$(date +%Y%m%d).tar.gz   # verify before proceeding
+  style P1 fill:#e6fcfd,stroke:#33d9e4
+  style P5 fill:#e8f8ec,stroke:#4caf7d
 ```
 
-**Choosing a strategy.** IBM documents three migration approaches. I chose
-**in-place migration**, because it preserves the integration node name and
-configuration, which meant every downstream system's connection details stayed
-valid and the change stayed invisible outside the platform:
+I chose **in-place migration** out of the three strategies IBM documents. It keeps the integration node name and its configuration, which meant every connected system's settings stayed valid and the change was invisible outside the platform.
 
 ```bash
+# Back up everything first. This is what makes rollback real.
+tar -zcvf ace11_backup_$(date +%Y%m%d).tar.gz /opt/IBM/ace11/
+tar -zcvf mqsi_backup_$(date +%Y%m%d).tar.gz  /var/mqsi
+tar -ztvf ace11_backup_$(date +%Y%m%d).tar.gz   # verify before going further
+
 mqsistop ACENODE
 
 mqsiextractcomponents \
@@ -535,99 +732,35 @@ mqsiextractcomponents \
   --target-integration-node ACENODE \
   --delete-existing-node
 
-mqsistart ACENODE
+mqsistart ACENODE --vault-key <vault-key>
 mqsilist  ACENODE
 ```
 
-**The traps I hit, and planned around:**
+**What I planned around, and what bit anyway:**
 
-- Running both versions side by side means **port collisions**. The HTTP and
-  HTTPS listener ports have to be reassigned before the v12 node starts, or it
-  starts and immediately fails to bind.
-- The queue manager can be reused, but if both versions share queues you cannot
-  predict which runtime consumes a message. During cutover only one node runs.
-- v11 **configurable services** map to v12 **policies**, so those had to be
-  re-created as policy projects and referenced from the BAR files, not just
-  carried across.
-- File permissions on the component directory (`drwxrws---`, setgid on the group)
-  matter — get them wrong and the node fails to start with an error that doesn't
-  obviously point at permissions.
+- Both versions on one machine means **port collisions**. HTTP and HTTPS listener ports have to be reassigned before the v12 node starts, or it starts and immediately fails to bind.
+- The queue manager can be reused, but if both versions share queues you cannot predict which runtime takes a message. During cutover only one node runs.
+- v11 **configurable services** become v12 **policies**. They had to be recreated as policy projects and referenced from the BAR files, not simply carried across.
+- Basic auth credentials had to be recreated in the new vault before the outbound flows would authenticate.
+- Permissions on the component directory (`drwxrws---`, setgid on the group) matter. Get them wrong and the node fails to start with an error that gives no hint that permissions are the cause.
 
-I wrote the migration plan and runbook up front, rehearsed the whole sequence in
-DEV, repeated it in UAT, and then ran Production as a scripted, rehearsed
-change. It went live with no post-deployment issues and no rollback.
+I wrote the plan and the runbook first, rehearsed the whole sequence in DEV, repeated it in UAT, then ran Production as a scripted change. It went live with no post deployment issues and no rollback. The runbook was reused by the team for later environments.
 
----
-
-## Troubleshooting
-
-A rough map of what I actually reached for, in order:
+## Troubleshooting, in the order I actually checked
 
 | Symptom | First checks |
 | --- | --- |
-| Flow deployed but nothing processes | `mqsilist` for server state; is the flow started; is the input queue getting depth |
-| Messages landing on the backout queue | Backout threshold on the queue; the exception in the failure record |
-| TLS handshake failure | Is the partner cert in the truststore; has it expired; does the hostname match the CN/SAN |
-| HTTP calls fail only in one environment | Endpoint override in the policy; the credential alias resolving to the wrong environment |
-| Slow flow under load | Additional instances; commit interval; whether a Compute node re-parses the tree unnecessarily |
-| Monitoring events missing | Is the profile active; is MQTT publication enabled on the node |
+| Flow deployed but nothing moves | `mqsilist` for server state, is the flow started, is the input queue building depth |
+| Messages landing on the backout queue | Backout threshold on the queue, then the exception in the failure record |
+| TLS handshake fails | Is the partner certificate in the truststore, has it expired, does the hostname match the CN or SAN |
+| Works in DEV, fails in PROD | Endpoint override in the policy, or the credential alias resolving to the wrong environment |
+| Slow under load | Additional instances, commit interval, whether a Compute node is re-parsing the tree for no reason |
+| Monitoring events missing | Is the profile active, is MQTT publication enabled on the node |
 
-The single most useful tool was user trace, verbose enough to see the message
-tree at every node:
+The two changes that helped performance most were raising **additional instances** on queue-driven flows so messages processed in parallel, and **cutting repeated tree navigation** in ESQL by replacing long paths with reference variables.
 
-```bash
-mqsichangetrace ACENODE -u -e MQ_EG -l debug -r
-# reproduce the problem
-mqsireadlog ACENODE -u -e MQ_EG -f -o trace.xml
-mqsiformatlog -i trace.xml -o trace.txt
-mqsichangetrace ACENODE -u -e MQ_EG -l none
-```
+## What I would do differently
 
-On performance: the two changes that moved the needle most were **increasing
-additional instances** on queue-driven flows so messages processed in parallel,
-and **removing unnecessary tree navigation** in ESQL — replacing repeated long
-paths with reference variables, which stops ACE re-walking the tree on every
-line.
+The platform ran on VMs with Jenkins deploying over SSH. If I built it again I would run ACE in **containers on Kubernetes or OpenShift**, which IBM now supports with certified images. BAR files get baked into the image at build time, configuration comes in as ConfigMaps and secrets, and integration servers scale on their own instead of being sized up front on a fixed VM.
 
----
-
-## How I documented it
-
-Every interface shipped with a technical design document, and I kept the same
-structure across all of them so anyone could find what they needed:
-
-1. **Executive summary** — what this integration is for, in business terms
-2. **Data flow diagram** — systems and direction of travel
-3. **System interfaces** — the list of operations in scope
-4. **Interface description**, per operation:
-   - *Scenario* — the business trigger
-   - *Diagram* — the flow itself
-   - *Detailed description* — actors, pre-conditions, triggers, post-conditions
-   - *Main flow* — numbered steps
-   - *Data formats* — request and response, with samples
-   - *API details* — application name, flow name
-   - *Queue names* — every queue involved and its direction
-   - *Exception flows* — what happens when it fails
-5. **Business objects** — the entities being exchanged
-
-The sections that earned their keep were **main flow** and **exception flows**.
-When something broke at 2am, the person on call didn't need the design
-rationale — they needed the numbered steps and the failure path.
-
-I also wrote the migration plan and runbook that the team reused for later
-environments, which cut the setup work substantially for everyone after me.
-
----
-
-## What I'd do differently
-
-The platform ran on VMs, deployed by Jenkins over SSH. If I built it again I'd
-run ACE in **containers on Kubernetes or OpenShift**, which IBM now supports
-directly with certified images. That changes the deployment story: BAR files
-baked into an image at build time, configuration injected as ConfigMaps and
-secrets, and integration servers scaled independently instead of sized up front
-on a fixed VM.
-
-The design work — flow decomposition, DFDL modelling, error handling, idempotency,
-keeping credentials out of the artefact — carries over unchanged. That part is
-about integration, not about where the runtime happens to sit.
+The design work carries over unchanged: splitting the flow into small nodes, modelling the message properly, one shared error path, idempotency, and keeping credentials out of the artefact. That part is about integration, not about where the runtime happens to sit.
