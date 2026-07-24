@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { experience } from '../data/portfolio.js'
 
 // "Concordia Bible Institute" -> "CB", "Accenture" -> "AC"
@@ -42,16 +43,25 @@ export default function Experience() {
 
                 {job.summary && <p className="exp-summary">{job.summary}</p>}
 
+                {job.caseStudy && (
+                  <Link className="exp-cta" to={`/case-studies/${job.caseStudy}`}>
+                    Read the technical deep-dive <span className="arrow">→</span>
+                  </Link>
+                )}
+
                 <ul className="exp-points">
                   {job.points.map((pt, j) => (
                     <li key={j}>{pt}</li>
                   ))}
                 </ul>
 
-                <div className="tags">
-                  {job.tags.map((t) => (
-                    <span className="tag" key={t}>{t}</span>
-                  ))}
+                <div className="exp-stack">
+                  <span className="exp-stack-label">Tech stack</span>
+                  <div className="tags">
+                    {job.tags.map((t) => (
+                      <span className="tag" key={t}>{t}</span>
+                    ))}
+                  </div>
                 </div>
 
                 <span className="exp-index" aria-hidden="true">

@@ -54,6 +54,7 @@ export default function Nav() {
               {l.label}
             </a>
           ))}
+          <Link to="/case-studies">Case Studies</Link>
           <Link to="/blog">Writing</Link>
           <a href="/#contact" onClick={(e) => goToSection(e, 'contact')} className="nav-cta">
             Get in touch

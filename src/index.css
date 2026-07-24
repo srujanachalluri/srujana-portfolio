@@ -292,8 +292,12 @@ em { font-style: normal; color: var(--accent-2); }
 .exp-item:hover .exp-card {
   transform: translateY(-4px);
   border-color: rgba(114, 242, 249, 0.55);
+  background: linear-gradient(155deg, #ffffff 0%, #f2fdfe 55%, var(--accent-tint) 100%);
   box-shadow: 0 16px 38px rgba(15, 23, 32, 0.10), 0 0 0 1px rgba(114, 242, 249, 0.18);
 }
+/* Tags sit on white by default — lift them off the tinted hover background. */
+.exp-item:hover .tag { background: rgba(255, 255, 255, 0.85); border-color: rgba(114, 242, 249, 0.45); }
+.exp-item:hover .exp-stack { border-top-color: rgba(114, 242, 249, 0.35); }
 .exp-item:hover .exp-card::before { transform: scaleY(1); }
 
 .exp-card-head {
@@ -344,6 +348,12 @@ em { font-style: normal; color: var(--accent-2); }
 }
 .exp-item:hover .exp-index { opacity: 0.09; transform: translateY(-3px); }
 
+.exp-stack { position: relative; z-index: 1; padding-top: 1.1rem; border-top: 1px solid var(--line-soft); }
+.exp-stack-label {
+  display: block; margin-bottom: 0.7rem;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--faint);
+}
 .tags { display: flex; flex-wrap: wrap; gap: 0.5rem; position: relative; z-index: 1; }
 .tag {
   font-size: 0.8rem; font-weight: 500; padding: 0.32rem 0.8rem; border-radius: 100px;
@@ -649,6 +659,58 @@ em { font-style: normal; color: var(--accent-2); }
 }
 .post-body pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
 .post-body h2:first-child, .post-body h3:first-child { margin-top: 0; }
+.post-body hr { border: 0; border-top: 1px solid var(--line); margin: 2.6rem 0; }
+
+/* Tables (GFM) — scroll horizontally rather than breaking the page. */
+.post-body table {
+  width: 100%; border-collapse: collapse; margin: 0 0 1.6rem;
+  font-size: 0.94rem; display: table;
+}
+.post-body > table, .post-body .table-scroll { display: block; overflow-x: auto; }
+.post-body th, .post-body td {
+  border: 1px solid var(--line); padding: 0.6rem 0.85rem;
+  text-align: left; vertical-align: top;
+}
+.post-body th { background: var(--bg-alt); color: var(--ink); font-weight: 600; }
+.post-body tbody tr:nth-child(even) { background: #fbfdfe; }
+
+/* Mermaid diagrams */
+.mermaid-diagram {
+  margin: 1.8rem 0; padding: clamp(1rem, 3vw, 1.8rem);
+  background: var(--bg-alt); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow-x: auto; text-align: center;
+}
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-fallback {
+  background: var(--dark); color: #e6ebef; border: 1px solid var(--dark-line);
+  border-radius: var(--radius); padding: 1.2rem 1.4rem; overflow-x: auto;
+  font-size: 0.82rem; margin: 1.8rem 0;
+}
+
+/* Case studies carry diagrams, tables and code — give them more width. */
+.cs-container { max-width: 880px; }
+
+/* Case-study subtitle under the title */
+.cs-subtitle {
+  font-size: clamp(1.02rem, 2vw, 1.18rem); line-height: 1.6;
+  color: var(--muted); margin: 0 0 1.2rem; max-width: 60ch;
+}
+
+/* "Read the technical deep-dive" link on an experience card */
+.exp-cta {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  margin: 0 0 1.3rem; padding: 0.55rem 1.1rem; border-radius: 100px;
+  font-size: 0.88rem; font-weight: 600;
+  color: var(--accent-ink); background: var(--accent-tint);
+  border: 1px solid rgba(114, 242, 249, 0.55);
+  transition: background 0.25s var(--ease), transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.exp-cta:hover {
+  background: var(--accent); transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(114, 242, 249, 0.4);
+}
+.exp-cta .arrow { transition: transform 0.2s var(--ease); }
+.exp-cta:hover .arrow { transform: translateX(3px); }
 .post-foot { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; }
 
 /* ---------- Reveal on scroll ---------- */
